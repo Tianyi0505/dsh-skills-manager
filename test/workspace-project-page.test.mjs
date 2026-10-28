@@ -253,7 +253,7 @@ try {
 
   const feedback = () => find((node) => node.props.className === "dssm-feedback" && node.children.includes(t("result.updated")));
   find((node) => node.props["aria-label"] === t("skill.toggle") + " alpha-one").props.onClick(); await tick(); await tick(); render();
-  assert.ok(feedback(), "操作结果显示在发起操作的页面");
+  assert.equal(feedback(), undefined, "状态切换不插入会导致技能列表位移的成功提示");
   await tab("发现技能");
   assert.equal(feedback(), undefined, "仓库页不显示项目页的操作结果");
   await tab("回收站");

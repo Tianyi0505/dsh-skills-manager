@@ -2046,7 +2046,7 @@ function defaultManagerState(): ManagerState {
     disabledSkills[root.key] = [];
     enabledSkills[root.key] = [];
   }
-  return { version: 1, sources, disabledSkills, enabledSkills, sidebarEntry: false, onlineUpdate: true, categories: Object.create(null), categoryMembers: Object.create(null), categoryOrder: Object.create(null) };
+  return { version: 1, sources, disabledSkills, enabledSkills, exclusiveSources: [], sidebarEntry: false, onlineUpdate: true, categories: Object.create(null), categoryMembers: Object.create(null), categoryOrder: Object.create(null) };
 }
 
 function validStateSkillName(name: unknown): name is string {
@@ -2092,6 +2092,14 @@ function validManagerStateDocument(value: ManagerState) {
   if (
     !validPolicyLists(value.disabledSkills) ||
     !validPolicyLists(value.enabledSkills, true)
+  )
+    return false;
+  if (
+    value.exclusiveSources !== undefined &&
+    (!Array.isArray(value.exclusiveSources) || value.exclusiveSources.some((key) =>
+      typeof key !== "string" ||
+      (!userRoots().some((root) => root.key === key) && !PROJECT_ROOT_KEY_RE.test(key))
+    ))
   )
     return false;
   if (value.sidebarEntry !== undefined && typeof value.sidebarEntry !== "boolean") return false;
@@ -2203,6 +2211,12 @@ function normalizeManagerState(value: ManagerState) {
       }
     }
   }
+  if (Array.isArray(value.exclusiveSources)) {
+    normalized.exclusiveSources = [...new Set(value.exclusiveSources.filter((key) =>
+      typeof key === "string" &&
+      (userRoots().some((root) => root.key === key) || PROJECT_ROOT_KEY_RE.test(key))
+    ))].sort();
+  }
   normalized.categories = normalizeCategories(value.categories);
   normalized.categoryMembers = normalizeCategoryMembers(value.categoryMembers, normalized.categories);
   normalized.categoryOrder = normalizeCategoryOrder(value.categoryOrder, normalized.categories);
@@ -2302,6 +2316,7 @@ async function writeManagerState(value: ManagerState) {
 function managerSkillOverride(policy: ManagerState, rootKey: string, name: string, policyAliases: {rootKey: string; name: string}[] = []) {
   if ((policy.enabledSkills[rootKey] || []).includes(name)) return true;
   if ((policy.disabledSkills[rootKey] || []).includes(name)) return false;
+  if (policy.exclusiveSources?.includes(rootKey)) return false;
   let inheritedEnable = false;
   for (const alias of policyAliases) {
     if (alias.rootKey === rootKey && alias.name === name) continue;
@@ -2398,6 +2413,9 @@ export async function setSourceEnabled(key: string, enabled: boolean, log?: Log,
   const current = await readManagerState();
   if (current.writable === false) return invalidManagerStateWrite();
   current.state.sources[root.key] = enabled === true;
+  if (enabled) {
+    current.state.exclusiveSources = (current.state.exclusiveSources || []).filter((key) => key !== root.key);
+  }
   await writeManagerState(current.state);
   if (log)
     log(
@@ -2529,6 +2547,15 @@ async function setPolicySkillEnabled(root: RootInput, name: string, enabled: boo
   if (!definition) return readonlyError("toggle");
   const current = await readManagerState();
   if (current.writable === false) return invalidManagerStateWrite();
+  if (
+    enabled &&
+    definition.kind !== "project-dsh" &&
+    current.state.sources[definition.key] === false
+  ) {
+    current.state.sources[definition.key] = true;
+    current.state.exclusiveSources = [...new Set([...(current.state.exclusiveSources || []), definition.key])];
+    current.state.enabledSkills[definition.key] = [];
+  }
   const result = await applyPolicySkillEnabled(definition, name, enabled, current.state);
   if (result && result.ok === false) return result;
   await writeManagerState(current.state);

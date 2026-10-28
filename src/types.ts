@@ -87,6 +87,7 @@ export interface ManagerState {
     sources: Record<string, boolean>;
     disabledSkills: Record<string, string[]>;
     enabledSkills: Record<string, string[]>;
+    exclusiveSources?: string[];
     /** 是否在左侧全局侧边栏显示技能直达入口。默认 false。 */
     sidebarEntry?: boolean;
     /** 是否允许在线检查与安装更新。默认 true。 */

@@ -432,6 +432,13 @@ ok(
   "post rejects a second in-flight mutation synchronously",
 );
 ok(
+  clientSource.includes("if (successKey !== null) setResult(") &&
+    clientSource.includes('post(enabled ? "/disable" : "/enable", scoped({ root: root.key, name: skill.name }), null)') &&
+    clientSource.includes('post(root.enabled ? "/source-disable" : "/source-enable", scoped, null)') &&
+    clientSource.includes('post(allOn ? "/category-disable" : "/category-enable", scoped({ root: root.key, category: bucket.id }), null)'),
+  "status toggles suppress success feedback to avoid shifting the skill list",
+);
+ok(
   clientSource.includes("function submitImport()") &&
     clientSource.includes('post("/upload", Object.assign({}, payload, destinationPayload('),
   "upload import uses the shared guarded mutation path",
@@ -1179,7 +1186,35 @@ ok(
   !disabledCursorSource,
   "disabled Cursor source does not contribute a shadowing candidate",
 );
+await setSkillEnabled(cursorRoot, "cursor-review", true);
+const cursorOptInState = await readManagerState();
+eq(cursorOptInState.state.sources.cursor, true, "enabling one skill automatically enables its source");
+ok(cursorOptInState.state.exclusiveSources.includes("cursor"), "single-skill source opt-in persists exclusive mode");
+const cursorOnlyState = (await state()).roots.find((root) => root.key === "cursor");
+eq(cursorOnlyState.skills.find((skill) => skill.name === "cursor-review").enabled, true, "selected skill is active after source opt-in");
+
+await makeSkill(
+  cursorRoot,
+  "cursor-new-sibling",
+  "---\nname: cursor-new-sibling\ndescription: Newly discovered sibling.\n---\nSibling body",
+);
+const cursorWithNewSkill = (await state()).roots.find((root) => root.key === "cursor");
+eq(cursorWithNewSkill.skills.find((skill) => skill.name === "cursor-new-sibling").enabled, false, "new sibling stays disabled in exclusive source mode");
+eq(cursorWithNewSkill.skills.find((skill) => skill.name === "cursor-new-sibling").managerOverride, false, "new sibling receives an effective disabled override");
+const cursorNewCandidate = (await listProviderCandidates()).find(
+  (item) => item.source === "agent-cursor" && item.name === "cursor-new-sibling",
+);
+ok(cursorNewCandidate && cursorNewCandidate.invocation.modelInvocable === false && cursorNewCandidate.invocation.userInvocable === false, "newly discovered sibling remains non-invocable in the provider");
+await setSkillEnabled(cursorRoot, "cursor-new-sibling", true);
+const optedInSibling = (await listProviderCandidates()).find(
+  (item) => item.source === "agent-cursor" && item.name === "cursor-new-sibling",
+);
+ok(optedInSibling, "another skill can be individually opted in while the source is in exclusive mode");
+await setSourceEnabled("cursor", false);
 await setSourceEnabled("cursor", true);
+const manuallyEnabledCursorSource = await readManagerState();
+ok(!manuallyEnabledCursorSource.state.exclusiveSources.includes("cursor"), "manually enabling the whole source exits exclusive mode");
+eq((await state()).roots.find((root) => root.key === "cursor").skills.find((skill) => skill.name === "cursor-new-sibling").enabled, true, "manually enabling the source restores default sibling behavior");
 
 await setSourceEnabled("dsh", false);
 const disabledDshSource = (await listProviderCandidates()).find(
